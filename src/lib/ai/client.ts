@@ -27,22 +27,55 @@ function parseJson(text: string): unknown {
   return null;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS ?? 25000);
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timed out")), ms);
+    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+  });
+}
+
+const isRateLimit = (msg: string) => /429|RESOURCE_EXHAUSTED|quota/i.test(msg);
+const isTransient = (msg: string) => /503|UNAVAILABLE|high demand|overloaded|500|INTERNAL|DEADLINE|timed out/i.test(msg);
+
+async function callModel(model: string, system: string, prompt: string): Promise<string> {
+  const res = await withTimeout(getClient().models.generateContent({
+    model,
+    contents: prompt,
+    config: { systemInstruction: system, temperature: 0, responseMimeType: "application/json" },
+  }), TIMEOUT_MS);
+  return res.text ?? "";
+}
+
 export async function generateJson<T>(opts: { system: string; prompt: string; schema: ZodType<T> }): Promise<T> {
+  const models = [modelName(), process.env.GEMINI_FALLBACK_MODEL].filter(Boolean) as string[];
+  getClient(); // throws a clean config error if env is missing
+
   let text = "";
-  try {
-    const res = await getClient().models.generateContent({
-      model: modelName(),
-      contents: opts.prompt,
-      config: { systemInstruction: opts.system, temperature: 0, responseMimeType: "application/json" },
-    });
-    text = res.text ?? "";
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (e instanceof AiError) throw e;
-    if (/429|RESOURCE_EXHAUSTED|quota|rate/i.test(msg)) throw new AiError("rate_limit", "Gemini rate limit reached.");
-    console.error("[gemini]", msg); // server log only; never logs resume content
-    throw new AiError("upstream", "The AI service returned an error.");
+  let lastError: AiError | null = null;
+
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        text = await callModel(model, opts.system, opts.prompt);
+        lastError = null;
+        break;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[gemini] ${model} attempt ${attempt + 1}:`, msg.slice(0, 300)); // never logs resume content
+        if (isRateLimit(msg)) { lastError = new AiError("rate_limit", "Gemini rate limit reached."); break; }
+        lastError = new AiError("upstream", "The AI service is busy or returned an error.");
+        if (!isTransient(msg)) break;
+        if (attempt === 0) await sleep(1500);
+      }
+    }
+    if (!lastError) break;
   }
+
+  if (lastError) throw lastError;
 
   const result = opts.schema.safeParse(parseJson(text));
   if (!result.success) throw new AiError("invalid", "The AI returned an unexpected format.");
