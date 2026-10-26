@@ -38,7 +38,10 @@ Rules:
 - Include every numbered bullet in "bullets", with its original number as "n". "issue" is one short sentence ("" if rating is 4 or 5).
 - Give a "rewrite" only for bullets rated 3 or lower, for at most the 8 weakest. Otherwise null.
 - NEVER invent facts or numbers in a rewrite. Where a metric is missing, use a placeholder such as [X%], [N users] or [time saved].
-- jdFit: only when a job description summary is provided, otherwise null. "demonstrated" = required skills the resume actually shows in use (in bullets or projects), not merely lists. "notDemonstrated" = required skills absent or only listed. Use the job description's skill names. "assessment" is 1-2 sentences.`;
+- jdFit: only when a job description summary is provided, otherwise null. "demonstrated" = required skills the resume actually shows in use (in bullets or projects), not merely lists. "notDemonstrated" = required skills absent or only listed. Use the job description's skill names. "assessment" is 1-2 sentences.
+- Every statement in "strengths", "gaps" and "summary" must be directly supported by text in the resume. Never mention a skill, tool or achievement that is not written in it.
+- A rewrite may only reuse facts already stated in that bullet. Do not add tools, technologies, causes, outcomes or context that the bullet does not mention. If the bullet is too vague to improve without inventing facts, set "rewrite" to null and say what information the person should add in "issue".
+- A rewrite should only change structure and wording (strong verb first, action then result). Put [placeholders] only where a metric would go.`;
 
 export function resumePrompt(redactedText: string, bullets: string[], jd: JdData | null) {
   const numbered = bullets.map((b, i) => `${i + 1}. ${b}`).join("\n");

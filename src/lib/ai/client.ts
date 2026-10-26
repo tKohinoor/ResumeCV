@@ -50,8 +50,8 @@ async function callModel(model: string, system: string, prompt: string): Promise
   return res.text ?? "";
 }
 
-export async function generateJson<T>(opts: { system: string; prompt: string; schema: ZodType<T> }): Promise<T> {
-  const models = [modelName(), process.env.GEMINI_FALLBACK_MODEL].filter(Boolean) as string[];
+export async function generateJson<T>(opts: { system: string; prompt: string; schema: ZodType<T>; model?: string }): Promise<T> {
+  const models = [opts.model || modelName(), process.env.GEMINI_FALLBACK_MODEL].filter(Boolean) as string[];
   getClient(); // throws a clean config error if env is missing
 
   let text = "";
