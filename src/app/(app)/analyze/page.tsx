@@ -2,18 +2,19 @@
 import { useRef, useState } from "react";
 import { UploadCloud, FileText, X, Loader2, CheckCircle2 } from "lucide-react";
 import { parseResume, type ParsedResume } from "@/lib/parse";
+import { useRouter } from "next/navigation";
 
 const MAX_MB = 5;
 const ALLOWED = [".pdf", ".docx"];
 
 export default function AnalyzePage() {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [parsed, setParsed] = useState<ParsedResume | null>(null);
   const [parsing, setParsing] = useState(false);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [jd, setJd] = useState("");
-  const [submitted, setSubmitted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const jdWords = jd.trim() ? jd.trim().split(/\s+/).length : 0;
@@ -24,7 +25,7 @@ export default function AnalyzePage() {
     if (!ALLOWED.includes(ext)) return setError("Please upload a PDF or DOCX file.");
     if (f.size > MAX_MB * 1024 * 1024) return setError(`File is larger than ${MAX_MB} MB.`);
 
-    setError(""); setFile(f); setParsed(null); setSubmitted(false); setParsing(true);
+    setError(""); setFile(f); setParsed(null); setParsing(true);
     try {
       setParsed(await parseResume(f));
     } catch (e) {
@@ -35,12 +36,12 @@ export default function AnalyzePage() {
     }
   }
 
-  function remove() { setFile(null); setParsed(null); setSubmitted(false); setError(""); }
+  function remove() { setFile(null); setParsed(null); setError(""); }
 
   function analyze() {
     if (!parsed) return;
     sessionStorage.setItem("resumecv:pending", JSON.stringify({ parsed, jd }));
-    setSubmitted(true); // step 3 will navigate to /results here
+    router.push("/results");
   }
 
   return (
@@ -58,9 +59,8 @@ export default function AnalyzePage() {
             onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
             onDragLeave={() => setDragging(false)}
             onDrop={(e) => { e.preventDefault(); setDragging(false); pick(e.dataTransfer.files[0]); }}
-            className={`flex flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed text-center transition ${
-              file ? "" : "cursor-pointer"
-            } ${dragging ? "border-indigo-500 bg-indigo-50" : "border-slate-300 hover:border-indigo-400"}`}
+            className={`flex flex-1 flex-col items-center justify-center rounded-xl border-2 border-dashed text-center transition ${file ? "" : "cursor-pointer"
+              } ${dragging ? "border-indigo-500 bg-indigo-50" : "border-slate-300 hover:border-indigo-400"}`}
           >
             <input
               ref={inputRef} type="file" accept=".pdf,.docx" className="hidden"
@@ -121,20 +121,6 @@ export default function AnalyzePage() {
         </button>
       </div>
 
-      {/* TEMPORARY: remove in step 3 */}
-      {submitted && parsed && (
-        <section className="mt-8 rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-sm">
-          <h3 className="font-semibold">Parse preview (temporary)</h3>
-          <p className="mt-2 text-slate-600">
-            Contact detected: {Object.entries(parsed.contact).map(([k, v]) => `${k} ${v ? "✓" : "✗"}`).join(" · ")}
-          </p>
-          <p className="text-slate-600">Bullets found: {parsed.bullets.length}</p>
-          <p className="mt-3 font-medium">Text that would be sent to Gemini:</p>
-          <pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs">
-            {parsed.redactedText}
-          </pre>
-        </section>
-      )}
     </div>
   );
 }
