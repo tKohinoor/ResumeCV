@@ -1,23 +1,42 @@
 import { createHash } from "crypto";
+import { redis } from "./redis";
 
-const TTL = 24 * 60 * 60 * 1000;
+// Bump this whenever you change a prompt or schema, so old cached answers aren't served.
+const CACHE_VERSION = "v1";
+const TTL_SEC = 24 * 60 * 60;
 const MAX = 300;
-const store = new Map<string, { value: unknown; exp: number }>();
+const mem = new Map<string, { value: unknown; exp: number }>();
 
 export function cacheKey(...parts: string[]) {
-  return createHash("sha256")
-    .update([process.env.GEMINI_MODEL ?? "", ...parts].join("\u0000"))
+  const h = createHash("sha256")
+    .update([CACHE_VERSION, process.env.GEMINI_MODEL ?? "", ...parts].join("\u0000"))
     .digest("hex");
+  return `cv:cache:${h}`;
 }
 
-export function cacheGet<T>(key: string): T | undefined {
-  const hit = store.get(key);
+export async function cacheGet<T>(key: string): Promise<T | undefined> {
+  if (redis) {
+    try {
+      return (await redis.get<T>(key)) ?? undefined;
+    } catch {
+      console.error("[cache] redis get failed, using memory");
+    }
+  }
+  const hit = mem.get(key);
   if (!hit) return undefined;
-  if (hit.exp < Date.now()) { store.delete(key); return undefined; }
+  if (hit.exp < Date.now()) { mem.delete(key); return undefined; }
   return hit.value as T;
 }
 
-export function cacheSet(key: string, value: unknown) {
-  if (store.size >= MAX) store.delete(store.keys().next().value as string);
-  store.set(key, { value, exp: Date.now() + TTL });
+export async function cacheSet(key: string, value: unknown): Promise<void> {
+  if (redis) {
+    try {
+      await redis.set(key, value, { ex: TTL_SEC });
+      return;
+    } catch {
+      console.error("[cache] redis set failed, using memory");
+    }
+  }
+  if (mem.size >= MAX) mem.delete(mem.keys().next().value as string);
+  mem.set(key, { value, exp: Date.now() + TTL_SEC * 1000 });
 }

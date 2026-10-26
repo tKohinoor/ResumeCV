@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   if (!body.success) return NextResponse.json({ error: "Job description is missing or too long." }, { status: 400 });
 
   const key = cacheKey("jd", body.data.jd);
-  const hit = cacheGet<JdData>(key);
+  const hit = await cacheGet<JdData>(key);
   if (hit) return NextResponse.json({ data: hit, cached: true });
 
   const limited = checkLimits(req);
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
   try {
     const data = await generateJson({ system: JD_SYSTEM, prompt: jdPrompt(body.data.jd), schema: JdSchema });
-    cacheSet(key, data);
+    await cacheSet(key, data);
     return NextResponse.json({ data, cached: false });
   } catch (e) {
     return aiErrorResponse(e);

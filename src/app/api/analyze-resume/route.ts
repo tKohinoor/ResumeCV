@@ -37,7 +37,7 @@ export async function POST(req: Request) {
   const { resumeText, bullets, jd } = body.data;
 
   const key = cacheKey("resume", resumeText, JSON.stringify(bullets), JSON.stringify(jd ?? null));
-  const hit = cacheGet<ResumeAiData>(key);
+  const hit = await cacheGet<ResumeAiData>(key);
   if (hit) return NextResponse.json({ data: hit, cached: true });
 
   const limited = checkLimits(req);
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
       schema: ResumeAiSchema,
     });
     const data = sanitize(jd ? raw : { ...raw, jdFit: null }, bullets);
-    cacheSet(key, data);
+    await cacheSet(key, data);
     return NextResponse.json({ data, cached: false });
   } catch (e) {
     return aiErrorResponse(e);
