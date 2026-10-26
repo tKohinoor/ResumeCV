@@ -1,33 +1,76 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import ScoreRing from "@/components/ScoreRing";
 import CategoryBar from "@/components/CategoryBar";
 import KeywordChips from "@/components/KeywordChips";
-import { scoreResume } from "@/lib/scoring";
-import type { ScoreResult } from "@/lib/scoring/types";
+import AiPanel, { type AiStatus } from "@/components/AiPanel";
+import { scoreResume, withAi } from "@/lib/scoring";
+import { redactLine } from "@/lib/parse/redact";
+import { fetchJd, fetchResumeAi } from "@/lib/ai/api";
+import type { JdData, ResumeAiData } from "@/lib/ai/schemas";
 import type { ParsedResume } from "@/lib/parse";
+
+type Input = { parsed: ParsedResume; jd: string };
 
 function verdict(n: number) {
   return n >= 85 ? "Excellent" : n >= 70 ? "Good" : n >= 55 ? "Needs work" : "Needs a rework";
 }
 
 export default function ResultsPage() {
-  const [result, setResult] = useState<ScoreResult | null>(null);
-  const [fileName, setFileName] = useState("");
+  const [input, setInput] = useState<Input | null>(null);
+  const [jdData, setJdData] = useState<JdData | null>(null);
+  const [ai, setAi] = useState<ResumeAiData | null>(null);
+  const [status, setStatus] = useState<AiStatus>("loading");
+  const [error, setError] = useState("");
   const [empty, setEmpty] = useState(false);
+  const started = useRef(false);
+
+  const runAi = useCallback(async (inp: Input) => {
+    setStatus("loading");
+    setError("");
+
+    // 1) Job description first, so the resume call can check fit against it.
+    let jdForResume: JdData | null = null;
+    const jd = inp.jd.trim();
+    if (jd.split(/\s+/).filter(Boolean).length >= 30 && jd.length >= 150) {
+      try {
+        jdForResume = await fetchJd(jd);
+        setJdData(jdForResume);
+      } catch {
+        // keep the heuristic keyword extraction
+      }
+    }
+
+    // 2) Resume review. Only redacted text and redacted bullets leave the browser.
+    try {
+      const bullets = inp.parsed.bullets.slice(0, 60).map((b) => redactLine(b).slice(0, 600));
+      setAi(await fetchResumeAi(inp.parsed.redactedText, bullets, jdForResume));
+      setStatus("done");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "AI feedback is unavailable.");
+      setStatus("error");
+    }
+  }, []);
 
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     try {
       const raw = sessionStorage.getItem("resumecv:pending");
       if (!raw) return setEmpty(true);
-      const { parsed, jd } = JSON.parse(raw) as { parsed: ParsedResume; jd: string };
-      setFileName(parsed.fileName);
-      setResult(scoreResume(parsed, jd));
+      const inp = JSON.parse(raw) as Input;
+      setInput(inp);
+      runAi(inp);
     } catch {
       setEmpty(true);
     }
-  }, []);
+  }, [runAi]);
+
+  const result = useMemo(() => {
+    if (!input) return null;
+    return withAi(scoreResume(input.parsed, input.jd, jdData), ai);
+  }, [input, jdData, ai]);
 
   if (empty)
     return (
@@ -36,14 +79,19 @@ export default function ResultsPage() {
         <Link href="/analyze" className="mt-4 inline-block rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white">New analysis</Link>
       </div>
     );
-  if (!result) return <p className="text-slate-500">Scoring...</p>;
+  if (!input || !result) return <p className="text-slate-500">Scoring...</p>;
+
+  const note =
+    status === "loading" ? "Preliminary score (rule-based). Refining with AI..."
+    : status === "error" ? "Rule-based score. AI feedback unavailable."
+    : null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold">Results</h1>
         <p className="text-sm text-slate-500">
-          {fileName} · {result.hasJd ? "Tailored to your job description" : "General score (no job description)"}
+          {input.parsed.fileName} · {result.hasJd ? "Tailored to your job description" : "General score (no job description)"}
         </p>
       </div>
 
@@ -51,6 +99,7 @@ export default function ResultsPage() {
         <ScoreRing score={result.total} size={180} />
         <div>
           <p className="text-2xl font-bold">{verdict(result.total)}</p>
+          {note && <p className="mt-1 text-sm font-medium text-indigo-600">{note}</p>}
           <p className="mt-1 max-w-md text-sm text-slate-600">
             This score reflects resume form and keyword fit: structure, clarity, measurable impact and, with a job
             description, how well it matches. It isn't a judgement of you as a candidate.
@@ -89,6 +138,8 @@ export default function ResultsPage() {
           )}
         </div>
       </div>
+
+      <AiPanel status={status} ai={ai} bullets={input.parsed.bullets} error={error} onRetry={() => runAi(input)} />
 
       <div className="flex gap-3">
         <Link href="/analyze" className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Analyze another</Link>
