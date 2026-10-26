@@ -1,10 +1,11 @@
 import type { ParsedResume } from "@/lib/parse";
-import type { Category, Fix, ScoreResult } from "./types";
+import type { JdData, ResumeAiData } from "@/lib/ai/schemas";
+import { extractJdTerms, matchTerms, matchesTerm, normalize, termsFromJd, titleAlignment } from "./jd";
 import { startsStrong, WEAK_PHRASES } from "./verbs";
-import { extractJdTerms, matchTerms, matchesTerm, normalize, titleAlignment } from "./jd";
 
-const W_BASE = { impact: 25, verbs: 20, structure: 20, ats: 15, length: 10, skills: 10 };
-const W_JD = { keywords: 35, title: 10, impact: 15, verbs: 10, structure: 10, ats: 10, length: 5, skills: 5 };
+const RULES_MAX = 75;
+const W_BASE = { impact: 19, verbs: 15, structure: 15, ats: 11, length: 8, skills: 7 };
+const W_JD = { keywords: 26, title: 8, impact: 11, verbs: 8, structure: 8, ats: 7, length: 4, skills: 3 };
 
 const LABELS: Record<string, string> = {
   impact: "Quantified impact", verbs: "Action verbs & clarity", structure: "Structure & sections",
@@ -108,7 +109,18 @@ function skills(p: ParsedResume): R {
   return { ratio: clamp(ratio), issues };
 }
 
-export function scoreResume(p: ParsedResume, jd: string): ScoreResult {
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+function buildFixes(categories: Category[], factor: number): Fix[] {
+  return categories
+    .flatMap((c) => c.issues.map((text) => ({ text, points: (c.max - c.score) / Math.max(1, c.issues.length) })))
+    .filter((f) => f.points >= 0.5)
+    .sort((a, b) => b.points - a.points)
+    .slice(0, 6)
+    .map((f) => ({ text: f.text, points: Math.max(1, Math.round(f.points * factor)) }));
+}
+
+export function scoreResume(p: ParsedResume, jd: string, jdData?: JdData | null): ScoreResult {
   const hasJd = jd.trim().split(/\s+/).filter(Boolean).length >= 30;
   const W: Record<string, number> = hasJd ? W_JD : W_BASE;
 
@@ -119,13 +131,13 @@ export function scoreResume(p: ParsedResume, jd: string): ScoreResult {
 
   let keywords: ScoreResult["keywords"] = null;
   if (hasJd) {
-    const terms = extractJdTerms(jd);
-    keywords = matchTerms(terms, p.rawText);
+    const aiTerms = jdData && jdData.required.length + jdData.preferred.length >= 3 ? termsFromJd(jdData) : null;
+    keywords = matchTerms(aiTerms ?? extractJdTerms(jd), p.rawText);
     const kIssues = keywords.missing.length
       ? [`Missing ${keywords.missing.length} keywords from the job description. Add the ones that truthfully apply to you.`]
       : [];
     parts.keywords = { ratio: clamp(keywords.coverage / 0.7), issues: kIssues };
-    const t = titleAlignment(jd, p.rawText);
+    const t = titleAlignment(jd, p.rawText, jdData?.title || undefined);
     parts.title = { ratio: t.ratio, issues: t.issue ? [t.issue] : [] };
   }
 
@@ -135,19 +147,53 @@ export function scoreResume(p: ParsedResume, jd: string): ScoreResult {
 
   const categories: Category[] = order.map((key) => ({
     key, label: LABELS[key], max: W[key],
-    score: Math.round(parts[key].ratio * W[key] * 10) / 10,
+    score: round1(parts[key].ratio * W[key]),
     issues: parts[key].issues,
   }));
 
-  const fixes: Fix[] = categories
-    .flatMap((c) => c.issues.map((text) => ({ text, points: (1 - c.score / c.max) * c.max / Math.max(1, c.issues.length) })))
-    .filter((f) => f.points >= 0.5)
-    .sort((a, b) => b.points - a.points)
-    .slice(0, 6)
-    .map((f) => ({ text: f.text, points: Math.round(f.points) }));
-
+  const factor = 100 / RULES_MAX;
   return {
-    total: Math.round(categories.reduce((a, c) => a + c.score, 0)),
-    hasJd, categories, fixes, keywords,
+    total: Math.round(categories.reduce((a, c) => a + c.score, 0) * factor),
+    hasJd, categories, fixes: buildFixes(categories, factor), keywords, aiIncluded: false,
+  };
+}
+
+// Adds the AI-judged categories to a rules-only result.
+export function withAi(rules: ScoreResult, ai: ResumeAiData | null): ScoreResult {
+  if (!ai) return rules;
+
+  const fit = rules.hasJd ? ai.jdFit : null;
+  const d = fit?.demonstrated.length ?? 0;
+  const n = fit?.notDemonstrated.length ?? 0;
+  const fitOk = !!fit && d + n > 0;
+
+  const extra: Category[] = [];
+  if (ai.bullets.length) {
+    const avg = ai.bullets.reduce((a, b) => a + b.rating, 0) / ai.bullets.length;
+    const weak = ai.bullets.filter((b) => b.rating <= 2).length;
+    const max = fitOk ? 15 : 25;
+    extra.push({
+      key: "bullets", label: "Bullet quality (AI)", max,
+      score: round1(clamp((avg - 1) / 3.5) * max),
+      issues: weak ? [`${weak} of ${ai.bullets.length} bullets are vague or weak. See the feedback below.`] : [],
+    });
+  }
+  if (fitOk && fit) {
+    extra.push({
+      key: "demonstrated", label: "Skills demonstrated (AI)", max: 10,
+      score: round1((d / (d + n)) * 10),
+      issues: n ? [`Required skills not clearly shown in your experience: ${fit.notDemonstrated.slice(0, 5).join(", ")}.`] : [],
+    });
+  }
+
+  const aiMax = extra.reduce((a, c) => a + c.max, 0);
+  const points = [...rules.categories, ...extra].reduce((a, c) => a + c.score, 0);
+  const categories = [...rules.categories, ...extra];
+  return {
+    ...rules,
+    total: Math.round((points / (RULES_MAX + aiMax)) * 100),
+    categories,
+    fixes: buildFixes(categories, 100 / (RULES_MAX + aiMax)),
+    aiIncluded: true,
   };
 }
