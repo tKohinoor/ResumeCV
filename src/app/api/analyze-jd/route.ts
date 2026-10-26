@@ -4,12 +4,14 @@ import { generateJson } from "@/lib/ai/client";
 import { JD_SYSTEM, jdPrompt } from "@/lib/ai/prompts";
 import { JdSchema, type JdData } from "@/lib/ai/schemas";
 import { cacheGet, cacheKey, cacheSet } from "@/lib/server/cache";
-import { aiErrorResponse, checkLimits } from "@/lib/server/guard";
+import { aiErrorResponse, bodyTooLarge, checkLimits } from "@/lib/server/guard";
 
 
 const Body = z.object({ jd: z.string().min(150).max(8000) });
 
 export async function POST(req: Request) {
+  const big = bodyTooLarge(req);
+  if (big) return big;
   const body = Body.safeParse(await req.json().catch(() => null));
   if (!body.success) return NextResponse.json({ error: "Job description is missing or too long." }, { status: 400 });
 
