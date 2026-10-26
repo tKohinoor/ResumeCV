@@ -8,6 +8,7 @@ import AiPanel, { type AiStatus } from "@/components/AiPanel";
 import { scoreResume, withAi } from "@/lib/scoring";
 import { redactLine } from "@/lib/parse/redact";
 import { fetchJd, fetchResumeAi } from "@/lib/ai/api";
+import { getEntry, saveEntry, type HistoryEntry } from "@/lib/history";
 import type { JdData, ResumeAiData } from "@/lib/ai/schemas";
 import type { ParsedResume } from "@/lib/parse";
 
@@ -19,12 +20,14 @@ function verdict(n: number) {
 
 export default function ResultsPage() {
   const [input, setInput] = useState<Input | null>(null);
+  const [saved, setSaved] = useState<HistoryEntry | null>(null);
   const [jdData, setJdData] = useState<JdData | null>(null);
   const [ai, setAi] = useState<ResumeAiData | null>(null);
   const [status, setStatus] = useState<AiStatus>("loading");
   const [error, setError] = useState("");
   const [empty, setEmpty] = useState(false);
   const started = useRef(false);
+  const entryId = useRef("");
 
   const runAi = useCallback(async (inp: Input) => {
     setStatus("loading");
@@ -57,9 +60,23 @@ export default function ResultsPage() {
     if (started.current) return;
     started.current = true;
     try {
+      // Reopening a saved analysis from History: no scoring, no AI calls.
+      const viewId = sessionStorage.getItem("resumecv:view");
+      if (viewId) {
+        const entry = getEntry(viewId);
+        if (entry) {
+          setSaved(entry);
+          setAi(entry.ai);
+          setStatus("done");
+          return;
+        }
+        sessionStorage.removeItem("resumecv:view");
+      }
+
       const raw = sessionStorage.getItem("resumecv:pending");
       if (!raw) return setEmpty(true);
       const inp = JSON.parse(raw) as Input;
+      entryId.current = crypto.randomUUID();
       setInput(inp);
       runAi(inp);
     } catch {
@@ -68,9 +85,23 @@ export default function ResultsPage() {
   }, [runAi]);
 
   const result = useMemo(() => {
+    if (saved) return saved.result;
     if (!input) return null;
     return withAi(scoreResume(input.parsed, input.jd, jdData), ai);
-  }, [input, jdData, ai]);
+  }, [saved, input, jdData, ai]);
+
+  // Save once the AI step has finished (or failed); retries update the same entry.
+  useEffect(() => {
+    if (saved || !input || !result || status === "loading" || !entryId.current) return;
+    saveEntry({
+      id: entryId.current,
+      fileName: input.parsed.fileName,
+      hasJd: result.hasJd,
+      jdTitle: jdData?.title || undefined,
+      result,
+      ai: ai ? { ...ai, bullets: [] } : null, // never store resume text
+    });
+  }, [saved, input, result, status, ai, jdData]);
 
   if (empty)
     return (
@@ -79,10 +110,12 @@ export default function ResultsPage() {
         <Link href="/analyze" className="mt-4 inline-block rounded-xl bg-indigo-600 px-5 py-2.5 font-semibold text-white">New analysis</Link>
       </div>
     );
-  if (!input || !result) return <p className="text-slate-500">Scoring...</p>;
+  if (!result) return <p className="text-slate-500">Scoring...</p>;
 
-  const note =
-    status === "loading" ? "Preliminary score (rule-based). Refining with AI..."
+  const fileName = saved ? saved.fileName : input!.parsed.fileName;
+  const note = saved
+    ? `Saved analysis from ${new Date(saved.date).toLocaleString()}`
+    : status === "loading" ? "Preliminary score (rule-based). Refining with AI..."
     : status === "error" ? "Rule-based score. AI feedback unavailable."
     : null;
 
@@ -91,7 +124,7 @@ export default function ResultsPage() {
       <div>
         <h1 className="text-2xl font-bold">Results</h1>
         <p className="text-sm text-slate-500">
-          {input.parsed.fileName} · {result.hasJd ? "Tailored to your job description" : "General score (no job description)"}
+          {fileName} · {result.hasJd ? "Tailored to your job description" : "General score (no job description)"}
         </p>
       </div>
 
@@ -139,10 +172,19 @@ export default function ResultsPage() {
         </div>
       </div>
 
-      <AiPanel status={status} ai={ai} bullets={input.parsed.bullets} error={error} onRetry={() => runAi(input)} />
+      {(saved ? saved.ai : true) && (
+        <AiPanel
+          status={status}
+          ai={ai}
+          bullets={saved ? [] : input!.parsed.bullets}
+          error={error}
+          onRetry={() => input && runAi(input)}
+        />
+      )}
 
       <div className="flex gap-3">
         <Link href="/analyze" className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700">Analyze another</Link>
+        <Link href="/history" className="rounded-xl border px-5 py-2.5 text-sm font-semibold hover:bg-slate-50">History</Link>
       </div>
     </div>
   );

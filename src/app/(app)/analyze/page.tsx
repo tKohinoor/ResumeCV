@@ -40,6 +40,7 @@ export default function AnalyzePage() {
 
   function analyze() {
     if (!parsed) return;
+    sessionStorage.removeItem("resumecv:view");
     sessionStorage.setItem("resumecv:pending", JSON.stringify({ parsed, jd }));
     router.push("/results");
   }
