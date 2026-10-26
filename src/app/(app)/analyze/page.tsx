@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { UploadCloud, FileText, X, Loader2, CheckCircle2 } from "lucide-react";
 import { parseResume, type ParsedResume } from "@/lib/parse";
 import { useRouter } from "next/navigation";
@@ -16,6 +16,14 @@ export default function AnalyzePage() {
   const [dragging, setDragging] = useState(false);
   const [jd, setJd] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const preset = sessionStorage.getItem("resumecv:jdpreset");
+    if (preset) {
+      setJd(preset);
+      sessionStorage.removeItem("resumecv:jdpreset");
+    }
+  }, []);
 
   const jdWords = jd.trim() ? jd.trim().split(/\s+/).length : 0;
 
