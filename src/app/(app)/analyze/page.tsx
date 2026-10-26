@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useRef, useState } from "react";
 import { UploadCloud, FileText, X, Loader2, CheckCircle2 } from "lucide-react";
 import { parseResume, type ParsedResume } from "@/lib/parse";

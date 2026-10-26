@@ -2,6 +2,7 @@ import type { ParsedResume } from "@/lib/parse";
 import type { JdData, ResumeAiData } from "@/lib/ai/schemas";
 import { extractJdTerms, matchTerms, matchesTerm, normalize, termsFromJd, titleAlignment } from "./jd";
 import { startsStrong, WEAK_PHRASES } from "./verbs";
+import type { Category, Fix, ScoreResult } from "./types";
 
 const RULES_MAX = 75;
 const W_BASE = { impact: 19, verbs: 15, structure: 15, ats: 11, length: 8, skills: 7 };
@@ -15,7 +16,6 @@ const LABELS: Record<string, string> = {
 
 type R = { ratio: number; issues: string[] };
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
-const pct = (n: number) => Math.round(n * 100);
 
 function impact(bullets: string[]): R {
   if (!bullets.length)

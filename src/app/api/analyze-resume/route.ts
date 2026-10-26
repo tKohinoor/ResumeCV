@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   const hit = await cacheGet<ResumeAiData>(key);
   if (hit) return NextResponse.json({ data: hit, cached: true });
 
-  const limited = checkLimits(req);
+  const limited = await checkLimits(req);
   if (limited) return limited;
 
   try {

@@ -43,7 +43,7 @@ const BULLET = /^[\u2022\u25CF\u25AA\u25E6\u2023\u2043•·▪►➢*\-–]\s*/;
 
 export function extractBullets(lines: string[]): string[] {
   const bullets: string[] = [];
-  let hasMarkers = lines.some((l) => BULLET.test(l));
+  const hasMarkers = lines.some((l) => BULLET.test(l));
   for (const line of lines) {
     if (BULLET.test(line)) {
       bullets.push(line.replace(BULLET, "").trim());

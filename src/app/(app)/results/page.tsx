@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import ScoreRing from "@/components/ScoreRing";
@@ -135,7 +136,7 @@ export default function ResultsPage() {
           {note && <p className="mt-1 text-sm font-medium text-indigo-600">{note}</p>}
           <p className="mt-1 max-w-md text-sm text-slate-600">
             This score reflects resume form and keyword fit: structure, clarity, measurable impact and, with a job
-            description, how well it matches. It isn't a judgement of you as a candidate.
+            description, how well it matches. It isn&apos;t a judgement of you as a candidate.
           </p>
         </div>
       </section>

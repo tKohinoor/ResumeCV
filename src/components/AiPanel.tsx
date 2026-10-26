@@ -111,7 +111,7 @@ export default function AiPanel({
         <section className={card}>
           <h2 className="font-semibold">Bullets to improve</h2>
           <p className="mb-4 mt-1 text-xs text-slate-500">
-            Rewrites reuse only your own facts. Replace anything in [brackets] with a real number, and only if it's true.
+            Rewrites reuse only your own facts. Replace anything in [brackets] with a real number, and only if it&apos;s true.
           </p>
           <div className="space-y-5">
             {weak.map((b) => (
