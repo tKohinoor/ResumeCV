@@ -38,6 +38,18 @@ async function extractPdf(buffer: ArrayBuffer): Promise<Extracted> {
 
 async function extractDocx(buffer: ArrayBuffer): Promise<Extracted> {
   const mammoth = await import("mammoth/mammoth.browser");
-  const { value } = await mammoth.extractRawText({ arrayBuffer: buffer });
-  return { text: value, pageCount: null };
+  // HTML keeps list items, so Word bullets survive as "• " lines.
+  const { value } = await mammoth.convertToHtml({ arrayBuffer: buffer });
+  const text = value
+    .replace(/<li[^>]*>/gi, "\n• ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|h[1-6]|li|tr|ul|ol)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+  return { text, pageCount: null };
 }
